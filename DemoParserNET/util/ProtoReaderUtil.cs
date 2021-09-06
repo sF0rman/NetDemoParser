@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace DemoParserNET.util
@@ -51,6 +52,19 @@ namespace DemoParserNET.util
             } while (b != 0x00);
 
             return str.ToString();
+        }
+
+        public static string ReadBytesAsBits(BinaryReader buffer, int amount = 1)
+        {
+            int bytes = amount / 8 + 1;
+            string binary = "";
+            for (int i = 0; i < bytes; i++)
+            {
+                string bin = Convert.ToString(buffer.ReadByte(), 2);
+                binary += bin;
+            }
+
+            return binary;
         }
     }
 }

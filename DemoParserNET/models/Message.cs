@@ -550,7 +550,7 @@ namespace DemoParserNET.models
         }
 
         [ProtoMember(1)] public string? EventName { get; set; }
-        [ProtoMember(2)] public int? EventId { get; set; }
+        [ProtoMember(2)] public int EventId { get; set; }
         [ProtoMember(3)] public List<KeyT>? Keys { get; set; }
     }
 
@@ -561,7 +561,7 @@ namespace DemoParserNET.models
         public override int NetMsgType => 26;
         [ProtoMember(1)] public int? MaxEntries { get; set; }
         [ProtoMember(2)] public int? UpdatedEntries { get; set; }
-        [ProtoMember(3)] public bool? IsDelta { get; set; }
+        [ProtoMember(3)] public bool IsDelta { get; set; }
         [ProtoMember(4)] public bool? UpdateBaseline { get; set; }
         [ProtoMember(5)] public int? Baseline { get; set; }
         [ProtoMember(6)] public int? DeltaFrom { get; set; }

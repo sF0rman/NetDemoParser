@@ -1,7 +1,12 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using DemoParserNET.models;
 using DemoParserNET.util;
+using Microsoft.VisualBasic.CompilerServices;
 
 namespace DemoParserNET
 {
@@ -24,19 +29,22 @@ namespace DemoParserNET
     {
         private DemoHeader _demoHeader;
         private readonly GameEvents _gameEvents;
-        private readonly Entities _entities;
+        private readonly Dictionary<int, BaseEntity> _entities;
+        private readonly List<DataTables> _dataTables;
         private readonly StringTables _stringTables;
         private readonly UserMessages _userMessages;
         private readonly ConVars _conVars;
+        private ImmutableDictionary<int, object> _frame;
 
         private BinaryReader _demoBuffer;
-        private int currentTick = 0;
-        private bool isDemoFinished = false;
+        private int _serverClassBits = 0;
+        private int _currentTick = 0;
+        private bool _isDemoFinished = false;
 
         public event EventHandler<NetMessage> MessageEvent;
-        public event EventHandler<int> TickStart;
-        public event EventHandler<int> TickEnd;
-        public event EventHandler<bool> DemoEnd;
+        public static event EventHandler<int> TickStart;
+        public static event EventHandler<int> TickEnd;
+        public static event EventHandler<bool> DemoEnd;
 
         public DemoFile(string path)
         {
@@ -53,10 +61,13 @@ namespace DemoParserNET
             {
                 // No point in creating Models unless we have successfully opened 
                 _gameEvents = new GameEvents();
-                _entities = new Entities();
+                _entities = new Dictionary<int, BaseEntity>();
+                _dataTables = new List<DataTables>();
                 _stringTables = new StringTables();
                 _userMessages = new UserMessages();
                 _conVars = new ConVars();
+
+                DemoReader.CSvcPacketEntitiesEvent += HandlePacketEntities;
             }
         }
 
@@ -95,7 +106,7 @@ namespace DemoParserNET
                 playbackFrames = _demoBuffer.ReadInt32(),
                 signOnLength = _demoBuffer.ReadInt32()
             };
-            
+
             Console.WriteLine("----------------");
             Console.WriteLine($"Reading {_demoHeader.clientName} on map {_demoHeader.mapName}.");
             Console.WriteLine($"Demo Length {_demoHeader.playbackTime} (Ticks: {_demoHeader.playbackTicks})");
@@ -104,17 +115,17 @@ namespace DemoParserNET
 
         public void ParseDemo()
         {
-            while (!isDemoFinished)
+            while (!_isDemoFinished)
             {
                 byte cmd = _demoBuffer.ReadByte();
                 int tick = _demoBuffer.ReadInt32();
                 byte playerSlot = _demoBuffer.ReadByte();
 
-                if (currentTick != tick)
+                if (_currentTick != tick)
                 {
-                    TickEnd?.Invoke(this, currentTick);
-                    this.currentTick = tick;
-                    TickStart?.Invoke(this, currentTick);
+                    TickEnd?.Invoke(this, _currentTick);
+                    this._currentTick = tick;
+                    TickStart?.Invoke(this, _currentTick);
                 }
 
                 switch ((Message) cmd)
@@ -139,9 +150,9 @@ namespace DemoParserNET
                         break;
                     case Message.stop:
                         Console.WriteLine("Demo STOP");
-                        TickEnd?.Invoke(this, currentTick);
+                        TickEnd?.Invoke(this, _currentTick);
                         DemoEnd?.Invoke(this, true); // bool marks completed . False for incomplete demo.
-                        isDemoFinished = true;
+                        _isDemoFinished = true;
                         break;
                     default:
                         Console.WriteLine("Unrecognized Command");
@@ -195,17 +206,26 @@ namespace DemoParserNET
                     break;
                 }
 
-                // Add Datatables to List
+                _dataTables.Add(new DataTables()
+                {
+                    IsEnd = message.IsEnd,
+                    NeedsDecoder = message.NeedsDecoder,
+                    NetTableName = message.NetTableName,
+                    Props = message.Props
+                });
             }
-
+            
             short serverClasses = _demoBuffer.ReadInt16();
+            _serverClassBits = (int) Math.Ceiling(Math.Log2(serverClasses));
             for (int i = 0; i < serverClasses; i++)
             {
                 short classId = _demoBuffer.ReadInt16();
-                string name = ProtoReaderUtil.ReadNullTerminatedString(_demoBuffer);
-                string dtName = ProtoReaderUtil.ReadNullTerminatedString(_demoBuffer);
+                string name = ProtoReaderUtil.ReadNullTerminatedString(_demoBuffer).Trim('\0');
+                string dtName = ProtoReaderUtil.ReadNullTerminatedString(_demoBuffer).Trim('\0');
 
                 // Find DataTable
+                DataTables dataTables = FindDataTableByName(dtName);
+                Console.Write("");
                 // Create and Add ServerClasses to List
             }
         }
@@ -220,6 +240,50 @@ namespace DemoParserNET
 
         public void HandleUserCmd()
         {
+        }
+
+        public void HandlePacketEntities(object sender, CSvcMsgPacketEntities message)
+        {
+            if (!message.IsDelta)
+            {
+                _entities.Clear();
+            }
+
+            ReadPacketEntities(sender, message);
+        }
+
+        private void ReadPacketEntities(object sender, CSvcMsgPacketEntities message)
+        {
+            int entityIndex = -1;
+            BitReader reader = new BitReader(new MemoryStream(message.EntityData));
+
+            for (int i = 0; i < message.UpdatedEntries; ++i)
+            {
+                // We need to read 6 bits
+                entityIndex += 1 + reader.ReadBits(6);
+
+                if (reader.ReadBit() ?? false)
+                {
+                    // remove(entityIndex)
+                    if (reader.ReadBit() ?? false)
+                    {
+                        // remove(entityIndex);
+                    }
+                }
+                else if (reader.ReadBit() ?? false)
+                {
+                    int classId = reader.ReadBits(_serverClassBits);
+                    int serialNum = reader.ReadBits(10);
+                }
+                else
+                {
+                }
+            }
+        }
+
+        private DataTables FindDataTableByName(string name)
+        {
+            return _dataTables.Find(table => table.NetTableName.Equals(name));
         }
     }
 }
